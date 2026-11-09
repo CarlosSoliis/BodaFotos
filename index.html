@@ -124,6 +124,9 @@
   .progress-text{font-size:0.82rem;color:var(--muted);margin-top:10px;line-height:1.5;}
   .error{display:none;color:#9A3B2E;font-size:0.85rem;margin-bottom:14px;line-height:1.5;}
   .error.active{display:block;}
+  .preview-frame.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;max-height:340px;overflow:auto;}
+  .preview-frame.grid img{aspect-ratio:1;max-height:none;height:100%;}
+  .count{font-size:0.85rem;color:var(--muted);margin-bottom:14px;line-height:1.5;}
 </style>
 </head>
 <body>
@@ -139,14 +142,13 @@
     <label class="btn" for="cameraInput">Tomar foto</label>
     <input type="file" id="cameraInput" accept="image/*" capture="environment" hidden>
     <label class="btn btn-ghost" for="galleryInput">Elegir de mi galería</label>
-    <input type="file" id="galleryInput" accept="image/*" hidden>
+    <input type="file" id="galleryInput" accept="image/*" multiple hidden>
   </div>
 
   <!-- Pantalla 2: previsualización + mensaje -->
   <div class="screen" id="preview">
-    <div class="preview-frame">
-      <img id="previewImg" alt="Foto tomada">
-    </div>
+    <div class="preview-frame" id="previewFrame"></div>
+    <div class="count" id="previewCount"></div>
     <textarea id="messageInput" placeholder="Deja un mensaje para los novios (opcional)"></textarea>
     <div class="progress" id="progress">
       <div class="progress-track"><div class="progress-bar" id="progressBar"></div></div>
@@ -154,15 +156,15 @@
     </div>
     <div class="error" id="errorMsg"></div>
     <button class="btn" id="sendBtn">Enviar foto</button>
-    <button class="btn btn-ghost" id="retakeBtn">Tomar otra</button>
+    <button class="btn btn-ghost" id="retakeBtn">Volver</button>
   </div>
 
   <!-- Pantalla 3: agradecimiento -->
   <div class="screen" id="thanks">
     <div class="icon">✓</div>
     <h1 style="font-size:1.9rem;">Gracias</h1>
-    <p class="copy">Tu foto ya es parte de nuestra historia.</p>
-    <button class="btn" id="anotherBtn">Tomar otra foto</button>
+    <p class="copy" id="thanksCopy">Tu foto ya es parte de nuestra historia.</p>
+    <button class="btn" id="anotherBtn">Subir más fotos</button>
   </div>
 
 </div>
@@ -170,13 +172,29 @@
 <script>
   // URL del Web App de Google Apps Script
   const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwLpcAdgrc1Kammwv3W5F7lkmdFsdZtvQaz9CBwJ8zUt9qgFHVF86xkAOz-KxhC8QVIVg/exec";
+  const MAX_PHOTOS = 10; // máximo de fotos por envío
 
   const cameraInput = document.getElementById('cameraInput');
   const galleryInput = document.getElementById('galleryInput');
-  const previewImg = document.getElementById('previewImg');
+  const previewFrame = document.getElementById('previewFrame');
+  const previewCount = document.getElementById('previewCount');
   const messageInput = document.getElementById('messageInput');
   const sendBtn = document.getElementById('sendBtn');
-  let currentPhoto = null;
+  const retakeBtn = document.getElementById('retakeBtn');
+  const progress = document.getElementById('progress');
+  const progressBar = document.getElementById('progressBar');
+  const progressText = document.getElementById('progressText');
+  const errorMsg = document.getElementById('errorMsg');
+  const thanksCopy = document.getElementById('thanksCopy');
+
+  let queue = [];        // fotos pendientes por enviar
+  let sentCount = 0;     // fotos ya enviadas en este lote
+  let uploading = false;
+  let objectUrls = [];
+
+  window.addEventListener('beforeunload', (e) => {
+    if (uploading) { e.preventDefault(); e.returnValue = ''; }
+  });
 
   function showScreen(id){
     document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
@@ -184,10 +202,12 @@
   }
 
   function compressImage(file){
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       const reader = new FileReader();
+      reader.onerror = reject;
       reader.onload = (ev) => {
         const img = new Image();
+        img.onerror = reject;
         img.onload = () => {
           const maxSide = 4096;
           const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
@@ -203,77 +223,77 @@
     });
   }
 
-  async function handleFile(e) {
-    const file = e.target.files[0];
-    if (!file) return;
-    currentPhoto = await compressImage(file);
-    previewImg.src = currentPhoto;
+  function sendLabel(){
+    return queue.length > 1 ? 'Enviar ' + queue.length + ' fotos' : 'Enviar foto';
+  }
+
+  function renderPreview(){
+    objectUrls.forEach(u => URL.revokeObjectURL(u));
+    objectUrls = [];
+    previewFrame.innerHTML = '';
+    previewFrame.classList.toggle('grid', queue.length > 1);
+    queue.forEach(f => {
+      const url = URL.createObjectURL(f);
+      objectUrls.push(url);
+      const img = document.createElement('img');
+      img.src = url;
+      img.alt = 'Foto seleccionada';
+      previewFrame.appendChild(img);
+    });
+    previewCount.textContent = queue.length > 1 ? queue.length + ' fotos seleccionadas' : '';
+    sendBtn.textContent = sendLabel();
+  }
+
+  function handleFiles(e){
+    let files = Array.from(e.target.files || []);
+    if (!files.length) return;
+    const capped = files.length > MAX_PHOTOS;
+    if (capped) files = files.slice(0, MAX_PHOTOS);
+    errorMsg.classList.remove('active');
+    queue = files;
+    sentCount = 0;
+    renderPreview();
+    if (capped) previewCount.textContent = 'Se pueden enviar ' + MAX_PHOTOS + ' fotos a la vez. Después puedes subir más.';
     showScreen('preview');
   }
-  cameraInput.addEventListener('change', handleFile);
-  galleryInput.addEventListener('change', handleFile);
+  cameraInput.addEventListener('change', handleFiles);
+  galleryInput.addEventListener('change', handleFiles);
 
-  document.getElementById('retakeBtn').addEventListener('click', () => {
+  function resetAll(){
+    queue = [];
+    sentCount = 0;
     cameraInput.value = '';
     galleryInput.value = '';
-    showScreen('welcome');
-  });
-
-  document.getElementById('anotherBtn').addEventListener('click', () => {
     messageInput.value = '';
-    cameraInput.value = '';
-    galleryInput.value = '';
-    showScreen('welcome');
-  });
+    errorMsg.classList.remove('active');
+    renderPreview();
+  }
 
-  const progress = document.getElementById('progress');
-  const progressBar = document.getElementById('progressBar');
-  const progressText = document.getElementById('progressText');
-  const errorMsg = document.getElementById('errorMsg');
-  const retakeBtn = document.getElementById('retakeBtn');
-  let uploading = false;
-
-  window.addEventListener('beforeunload', (e) => {
-    if (uploading) { e.preventDefault(); e.returnValue = ''; }
-  });
+  retakeBtn.addEventListener('click', () => { resetAll(); showScreen('welcome'); });
+  document.getElementById('anotherBtn').addEventListener('click', () => { resetAll(); showScreen('welcome'); });
 
   function setUploading(on){
     uploading = on;
     sendBtn.disabled = on;
     retakeBtn.disabled = on;
     messageInput.disabled = on;
-    sendBtn.textContent = on ? 'Enviando...' : 'Enviar foto';
+    sendBtn.textContent = on ? 'Enviando...' : sendLabel();
     progress.classList.toggle('active', on);
     if (on) {
       errorMsg.classList.remove('active');
-      progressBar.classList.remove('indeterminate');
       progressBar.style.width = '0%';
-      progressText.textContent = 'Subiendo tu foto... por favor no cierres esta página.';
     }
   }
 
-  function finishOk(){
-    setUploading(false);
-    progressBar.style.width = '0%';
-    showScreen('thanks');
-  }
-
-  function finishError(){
-    setUploading(false);
-    errorMsg.textContent = 'No se pudo enviar la foto. Revisa tu conexión e inténtalo de nuevo.';
-    errorMsg.classList.add('active');
-  }
-
-  sendBtn.addEventListener('click', async () => {
-    setUploading(true);
+  // Envía una foto. La barra es estimada: Apps Script no permite medir el avance real.
+  async function sendOne(file, message, onProgress){
+    const dataUrl = await compressImage(file);
     let pct = 4;
-    progressBar.style.width = pct + '%';
-    // barra estimada: avanza rápido al inicio y se frena cerca del 92% hasta que termine el envío
+    onProgress(pct);
     const timer = setInterval(() => {
       pct += (92 - pct) * 0.04;
-      progressBar.style.width = pct.toFixed(1) + '%';
+      onProgress(pct);
     }, 300);
-
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 120000);
     try {
@@ -281,19 +301,53 @@
         method: 'POST',
         mode: 'no-cors',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ image: currentPhoto, message: messageInput.value.trim() }),
+        body: JSON.stringify({ image: dataUrl, message: message }),
         signal: controller.signal
       });
+    } finally {
       clearInterval(timer);
       clearTimeout(timeout);
-      progressBar.style.width = '100%';
-      progressText.textContent = '¡Listo!';
-      setTimeout(finishOk, 500);
-    } catch (err) {
-      clearInterval(timer);
-      clearTimeout(timeout);
-      finishError();
     }
+    onProgress(100);
+  }
+
+  sendBtn.addEventListener('click', async () => {
+    if (!queue.length) return;
+    const message = messageInput.value.trim();
+    const total = queue.length + sentCount;
+    setUploading(true);
+    try {
+      while (queue.length) {
+        const slice = 100 / total;
+        const base = sentCount * slice;
+        progressText.textContent = total > 1
+          ? 'Subiendo foto ' + (sentCount + 1) + ' de ' + total + '... por favor no cierres esta página.'
+          : 'Subiendo tu foto... por favor no cierres esta página.';
+        await sendOne(queue[0], message, (p) => {
+          progressBar.style.width = (base + slice * p / 100) + '%';
+        });
+        queue.shift();
+        sentCount++;
+      }
+    } catch (err) {
+      setUploading(false);
+      renderPreview();
+      errorMsg.textContent = sentCount > 0
+        ? 'Se enviaron ' + sentCount + ' foto(s), pero no se pudieron enviar las demás. Revisa tu conexión e inténtalo de nuevo.'
+        : 'No se pudo enviar la foto. Revisa tu conexión e inténtalo de nuevo.';
+      errorMsg.classList.add('active');
+      return;
+    }
+    progressBar.style.width = '100%';
+    progressText.textContent = '¡Listo!';
+    thanksCopy.textContent = sentCount > 1
+      ? 'Tus fotos ya son parte de nuestra historia.'
+      : 'Tu foto ya es parte de nuestra historia.';
+    setTimeout(() => {
+      setUploading(false);
+      progressBar.style.width = '0%';
+      showScreen('thanks');
+    }, 500);
   });
 </script>
 </body>
