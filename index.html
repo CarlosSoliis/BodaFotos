@@ -241,7 +241,7 @@
       errorMsg.classList.remove('active');
       progressBar.classList.remove('indeterminate');
       progressBar.style.width = '0%';
-      progressText.textContent = 'Subiendo tu foto... 0%. Por favor no cierres esta página.';
+      progressText.textContent = 'Subiendo tu foto... por favor no cierres esta página.';
     }
   }
 
@@ -257,31 +257,36 @@
     errorMsg.classList.add('active');
   }
 
-  sendBtn.addEventListener('click', () => {
+  sendBtn.addEventListener('click', async () => {
     setUploading(true);
-    let uploadDone = false;
-    const xhr = new XMLHttpRequest();
-    xhr.open('POST', APPS_SCRIPT_URL);
-    xhr.setRequestHeader('Content-Type', 'text/plain;charset=utf-8');
-    xhr.timeout = 180000;
+    let pct = 4;
+    progressBar.style.width = pct + '%';
+    // barra estimada: avanza rápido al inicio y se frena cerca del 92% hasta que termine el envío
+    const timer = setInterval(() => {
+      pct += (92 - pct) * 0.04;
+      progressBar.style.width = pct.toFixed(1) + '%';
+    }, 300);
 
-    xhr.upload.onprogress = (e) => {
-      if (!e.lengthComputable) return;
-      const pct = Math.round((e.loaded / e.total) * 100);
-      progressBar.style.width = pct + '%';
-      progressText.textContent = 'Subiendo tu foto... ' + pct + '%. Por favor no cierres esta página.';
-    };
-    xhr.upload.onload = () => {
-      uploadDone = true;
-      progressBar.classList.add('indeterminate');
-      progressText.textContent = 'Guardando tu foto... un momento más.';
-    };
-    xhr.onloadend = () => {
-      // Apps Script no deja leer la respuesta (CORS), pero si los datos se enviaron completos, la foto llegó.
-      uploadDone ? finishOk() : finishError();
-    };
-
-    xhr.send(JSON.stringify({ image: currentPhoto, message: messageInput.value.trim() }));
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 120000);
+    try {
+      await fetch(APPS_SCRIPT_URL, {
+        method: 'POST',
+        mode: 'no-cors',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ image: currentPhoto, message: messageInput.value.trim() }),
+        signal: controller.signal
+      });
+      clearInterval(timer);
+      clearTimeout(timeout);
+      progressBar.style.width = '100%';
+      progressText.textContent = '¡Listo!';
+      setTimeout(finishOk, 500);
+    } catch (err) {
+      clearInterval(timer);
+      clearTimeout(timeout);
+      finishError();
+    }
   });
 </script>
 </body>
