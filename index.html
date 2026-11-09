@@ -138,6 +138,8 @@
     <p class="copy">Ayúdanos a guardar los momentos que nosotros no alcanzamos a ver. Toma una foto y compártela con nosotros.</p>
     <label class="btn" for="cameraInput">Tomar foto</label>
     <input type="file" id="cameraInput" accept="image/*" capture="environment" hidden>
+    <label class="btn btn-ghost" for="galleryInput">Elegir de mi galería</label>
+    <input type="file" id="galleryInput" accept="image/*" hidden>
   </div>
 
   <!-- Pantalla 2: previsualización + mensaje -->
@@ -170,6 +172,7 @@
   const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwLpcAdgrc1Kammwv3W5F7lkmdFsdZtvQaz9CBwJ8zUt9qgFHVF86xkAOz-KxhC8QVIVg/exec";
 
   const cameraInput = document.getElementById('cameraInput');
+  const galleryInput = document.getElementById('galleryInput');
   const previewImg = document.getElementById('previewImg');
   const messageInput = document.getElementById('messageInput');
   const sendBtn = document.getElementById('sendBtn');
@@ -200,22 +203,26 @@
     });
   }
 
-  cameraInput.addEventListener('change', async (e) => {
+  async function handleFile(e) {
     const file = e.target.files[0];
     if (!file) return;
     currentPhoto = await compressImage(file);
     previewImg.src = currentPhoto;
     showScreen('preview');
-  });
+  }
+  cameraInput.addEventListener('change', handleFile);
+  galleryInput.addEventListener('change', handleFile);
 
   document.getElementById('retakeBtn').addEventListener('click', () => {
     cameraInput.value = '';
+    galleryInput.value = '';
     showScreen('welcome');
   });
 
   document.getElementById('anotherBtn').addEventListener('click', () => {
     messageInput.value = '';
     cameraInput.value = '';
+    galleryInput.value = '';
     showScreen('welcome');
   });
 
