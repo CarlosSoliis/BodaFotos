@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Eli & David · Comparte tu foto</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,600;1,400&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#FAF7F1;
+    --surface:#FFFFFF;
+    --ink:#2A241D;
+    --muted:#8A7F6E;
+    --gold:#A9834F;
+    --gold-soft:#E4D6BC;
+    --border:#E9E1D2;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  html,body{height:100%;}
+  body{
+    background:var(--bg);
+    color:var(--ink);
+    font-family:'Inter',sans-serif;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    min-height:100%;
+    padding:env(safe-area-inset-top,24px) 20px env(safe-area-inset-bottom,24px);
+  }
+  .card{
+    width:100%;
+    max-width:420px;
+    background:var(--surface);
+    border:1px solid var(--border);
+    padding:44px 32px;
+    text-align:center;
+  }
+  .screen{display:none;}
+  .screen.active{display:block;animation:fade .4s ease;}
+  @keyframes fade{from{opacity:0;transform:translateY(6px);}to{opacity:1;transform:none;}}
+  .rule{width:36px;height:1px;background:var(--gold);margin:0 auto 22px;}
+  h1{
+    font-family:'Cormorant Garamond',serif;
+    font-weight:600;
+    font-size:2.3rem;
+    line-height:1.15;
+    margin-bottom:10px;
+  }
+  .date{
+    font-family:'Cormorant Garamond',serif;
+    font-style:italic;
+    color:var(--muted);
+    font-size:1.05rem;
+    margin-bottom:28px;
+  }
+  p.copy{
+    color:var(--muted);
+    font-size:0.95rem;
+    line-height:1.6;
+    margin-bottom:32px;
+  }
+  .btn{
+    display:inline-block;
+    width:100%;
+    background:var(--ink);
+    color:var(--bg);
+    border:none;
+    padding:16px 20px;
+    font-family:'Inter',sans-serif;
+    font-size:0.95rem;
+    font-weight:500;
+    letter-spacing:.02em;
+    cursor:pointer;
+    text-decoration:none;
+  }
+  .btn:disabled{opacity:.5;cursor:default;}
+  .btn-ghost{
+    background:none;
+    color:var(--muted);
+    border:1px solid var(--border);
+    margin-top:12px;
+  }
+  .preview-frame{
+    border:1px solid var(--border);
+    padding:8px;
+    margin-bottom:20px;
+  }
+  .preview-frame img{
+    display:block;
+    width:100%;
+    max-height:340px;
+    object-fit:cover;
+  }
+  textarea{
+    width:100%;
+    border:1px solid var(--border);
+    background:var(--bg);
+    font-family:'Inter',sans-serif;
+    font-size:0.9rem;
+    padding:14px;
+    resize:none;
+    height:78px;
+    margin-bottom:16px;
+  }
+  textarea:focus{outline:1px solid var(--gold);}
+  .icon{
+    width:46px;height:46px;
+    margin:0 auto 20px;
+    border:1px solid var(--gold);
+    border-radius:50%;
+    display:flex;align-items:center;justify-content:center;
+    color:var(--gold);
+    font-family:'Cormorant Garamond',serif;
+    font-size:1.6rem;
+  }
+</style>
+</head>
+<body>
+
+<div class="card">
+
+  <!-- Pantalla 1: bienvenida -->
+  <div class="screen active" id="welcome">
+    <div class="rule"></div>
+    <h1>Eli &amp; David</h1>
+    <div class="date">21 de noviembre, 2026</div>
+    <p class="copy">Ayúdanos a guardar los momentos que nosotros no alcanzamos a ver. Toma una foto y compártela con nosotros.</p>
+    <label class="btn" for="cameraInput">Tomar foto</label>
+    <input type="file" id="cameraInput" accept="image/*" capture="environment" hidden>
+  </div>
+
+  <!-- Pantalla 2: previsualización + mensaje -->
+  <div class="screen" id="preview">
+    <div class="preview-frame">
+      <img id="previewImg" alt="Foto tomada">
+    </div>
+    <textarea id="messageInput" placeholder="Deja un mensaje para los novios (opcional)"></textarea>
+    <button class="btn" id="sendBtn">Enviar foto</button>
+    <button class="btn btn-ghost" id="retakeBtn">Tomar otra</button>
+  </div>
+
+  <!-- Pantalla 3: agradecimiento -->
+  <div class="screen" id="thanks">
+    <div class="icon">✓</div>
+    <h1 style="font-size:1.9rem;">Gracias</h1>
+    <p class="copy">Tu foto ya es parte de nuestra historia.</p>
+    <button class="btn" id="anotherBtn">Tomar otra foto</button>
+  </div>
+
+</div>
+
+<script>
+  // URL del Web App de Google Apps Script
+  const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwLpcAdgrc1Kammwv3W5F7lkmdFsdZtvQaz9CBwJ8zUt9qgFHVF86xkAOz-KxhC8QVIVg/exec";
+
+  const cameraInput = document.getElementById('cameraInput');
+  const previewImg = document.getElementById('previewImg');
+  const messageInput = document.getElementById('messageInput');
+  const sendBtn = document.getElementById('sendBtn');
+  let currentPhoto = null;
+
+  function showScreen(id){
+    document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+    document.getElementById(id).classList.add('active');
+  }
+
+  function compressImage(file){
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        const img = new Image();
+        img.onload = () => {
+          const maxW = 1600;
+          const scale = Math.min(1, maxW / img.width);
+          const canvas = document.createElement('canvas');
+          canvas.width = img.width * scale;
+          canvas.height = img.height * scale;
+          canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+          resolve(canvas.toDataURL('image/jpeg', 0.75));
+        };
+        img.src = ev.target.result;
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  cameraInput.addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    currentPhoto = await compressImage(file);
+    previewImg.src = currentPhoto;
+    showScreen('preview');
+  });
+
+  document.getElementById('retakeBtn').addEventListener('click', () => {
+    cameraInput.value = '';
+    showScreen('welcome');
+  });
+
+  document.getElementById('anotherBtn').addEventListener('click', () => {
+    messageInput.value = '';
+    cameraInput.value = '';
+    showScreen('welcome');
+  });
+
+  sendBtn.addEventListener('click', async () => {
+    sendBtn.disabled = true;
+    sendBtn.textContent = 'Enviando...';
+    try {
+      await fetch(APPS_SCRIPT_URL, {
+        method: 'POST',
+        mode: 'no-cors',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ image: currentPhoto, message: messageInput.value.trim() })
+      });
+    } catch (err) {
+      // con mode:no-cors no podemos leer la respuesta, seguimos igual
+    }
+    sendBtn.disabled = false;
+    sendBtn.textContent = 'Enviar foto';
+    showScreen('thanks');
+  });
+</script>
+</body>
+</html>
